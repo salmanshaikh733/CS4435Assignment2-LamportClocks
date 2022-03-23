@@ -22,4 +22,5 @@ message MessageRequest {
 message MessageResponse {
   string ack = 1;
   int64 t =2;
+  bool otherNodeDoneFlag = 3;
 }
