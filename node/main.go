@@ -55,14 +55,24 @@ var t = 0
 var numNodes = 0
 var numAcks = 0
 var doneAcks = 0
+var doneFlag = false
 
 // SendMessage implements helloworld.GreeterServer -- when other node contacts this node
 func (n *node) SendMessage(ctx context.Context, in *pb.MessageRequest) (*pb.MessageResponse, error) {
 
 	if in.Action == "done" {
+		doneAcks++
+		t++
 		var maxT = Max(int64(t), in.T)
+		if doneFlag == false {
+			return &pb.MessageResponse{T: maxT, OtherNodeDoneFlag: false}, nil
+		} else {
+			return &pb.MessageResponse{T: maxT, OtherNodeDoneFlag: true}, nil
+		}
+
 		return &pb.MessageResponse{T: maxT, Ack: "Acknowledged you are finished i see"}, nil
 	} else {
+		t++
 		var maxT = Max(int64(t), in.T)
 		//add event to queue
 		bankInstruction := Instruction{
@@ -224,15 +234,18 @@ func (n *node) GreetAll() {
 		println(input[0] + "\n")
 		//if last line
 		if input[0] == "done" {
-			lastIns := Instruction{Action: input[0]}
-			instructions = append(instructions, lastIns)
+			t++
+			//done flag tells us that this node is done processing transactions.
+			doneFlag = true
+			//TODO mistake here make sure to add timestamp when adding done
+			//lastIns := Instruction{Action: input[0], transactionTimeStamp: int64(t)}
+			//instructions = append(instructions, lastIns)
 
-			//send done ack to every node
+			//for every node do send a done ack
 			for _, kventry := range kvpairs {
 				println("Sending done ack")
-				t++
+				//if ourselves
 				if strings.Compare(kventry.Key, n.Name) == 0 {
-					// ourself
 					continue
 				}
 				// connection not established previously
@@ -252,7 +265,6 @@ func (n *node) GreetAll() {
 					}
 
 					//for each successful return increment numAcks for the current node
-					doneAcks++
 
 					log.Printf("Ack received from other node, transaction verified: %s", r.Ack)
 
@@ -260,7 +272,6 @@ func (n *node) GreetAll() {
 			}
 			//break out of loop
 			break
-
 		} else {
 			println("Sending normal ack")
 			action := input[0]
@@ -318,7 +329,7 @@ func (n *node) GreetAll() {
 			}
 		}
 	}
-	println(numAcks, numNodes, doneAcks)
+	//println(numAcks, numNodes, doneAcks)
 	//infinite loop waiting for other nodes to finish
 	//TODO issue over here - since we are not sending messages to other nodes done acks is not getting incremented. therefore stuck in infinite loop
 	for {
@@ -327,35 +338,38 @@ func (n *node) GreetAll() {
 			sort.SliceStable(instructions, func(i, j int) bool {
 				return instructions[i].transactionTimeStamp < instructions[j].transactionTimeStamp
 			})
+			fmt.Printf("%v", instructions)
 			if numAcks == numNodes {
 				for i := range instructions {
 					//if deposit
 					if instructions[i].Action == "deposit" {
 						for j := range accounts {
 							if accounts[j].AccountID == instructions[i].AccountID {
-								accounts[i].Balance = accounts[i].Balance + instructions[i].Amount
+								accounts[j].Balance = accounts[j].Balance + instructions[i].Amount
 							}
 						}
-					} else if instructions[i].Action == "deposit" {
+					} else if instructions[i].Action == "withdraw" {
 						for j := range accounts {
 							if accounts[j].AccountID == instructions[i].AccountID {
-								accounts[i].Balance = accounts[i].Balance - instructions[i].Amount
+								accounts[j].Balance = accounts[j].Balance - instructions[i].Amount
 							}
 						}
 					} else if instructions[i].Action == "interest" {
 						for j := range accounts {
 							if accounts[j].AccountID == instructions[i].AccountID {
-								accounts[i].Balance = accounts[i].Balance + ((instructions[i].Amount / 100) * accounts[i].Balance)
+								accounts[j].Balance = accounts[j].Balance + ((instructions[i].Amount / 100) * accounts[j].Balance)
 							}
 						}
 					} else if instructions[i].Action == "done" {
 						break
 					}
 				}
+				println("writing new json")
 				//write new updated accounts json file
 				dat, _ := json.MarshalIndent(accounts, "", "")
 				var updateFileName = "./bin/accountsUpdated" + n.Name + ".json"
 				ioutil.WriteFile(updateFileName, dat, 0644)
+				//done operating transactions
 				os.Exit(0)
 			}
 		} else {
